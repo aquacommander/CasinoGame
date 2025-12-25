@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Bangers, Geist, Geist_Mono, Pacifico } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/providers/provider";
-import { useEffect, useRef, useState } from "react";
 import LoadingIndicator from "@/components/Loading";
 
 const geistSans = Geist({
