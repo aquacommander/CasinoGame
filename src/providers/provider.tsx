@@ -6,6 +6,8 @@ import { HeroUIProvider } from '@heroui/react'
 import { useEffect, useRef, useState } from 'react';
 import io from "socket.io-client";
 import { SolanaProvider } from './solana';
+import { WalletConnectProvider } from '@/qubic/context/WalletConnectContext';
+import { QubicConnectProvider } from '@/qubic/context/QubicConnectContext';
 
 // Export individual socket connections
 const crashSocket = io(`${API_URL}/crashx`);
@@ -39,9 +41,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
         style={{ display: 'none' }}
       />
       <SocketContext.Provider value={crashSocket}>
-        <SolanaProvider>
-          {children}
-        </SolanaProvider>
+        <WalletConnectProvider>
+          <QubicConnectProvider>
+            <SolanaProvider>
+              {children}
+            </SolanaProvider>
+          </QubicConnectProvider>
+        </WalletConnectProvider>
       </SocketContext.Provider>
     </HeroUIProvider>
   )
