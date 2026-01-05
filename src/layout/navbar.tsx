@@ -15,6 +15,7 @@ import {
 import { MenuList } from "@/components/Sidebar/menulist";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
+import QubicConnectButton from "@/qubic/components/QubicConnectButton";
 
 export const AcmeLogo = () => {
     return (
@@ -32,7 +33,6 @@ export const AcmeLogo = () => {
 const CustomNavbar = () => {
 
     const [isMenuOpen, setIsMenuOpen] = React.useState(false);
-
 
     const { publicKey, disconnect, connect, signMessage, wallet } = useWallet();
     const { setVisible } = useWalletModal();
@@ -87,9 +87,7 @@ const CustomNavbar = () => {
 
             <NavbarContent justify="end">
                 <NavbarItem>
-                    <Button as={Link} color={publicKey ? "success" : "danger"} variant="flat" className={`border ${publicKey ? "border-success-500" : "border-red-500"} text-white`} onPress={() => !publicKey ? setVisible(true) : disconnect()}>
-                        {publicKey ? truncateMiddle(publicKey.toString()) : "Connect"}
-                    </Button>
+                    <QubicConnectButton />
                 </NavbarItem>
             </NavbarContent>
 
