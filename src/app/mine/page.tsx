@@ -287,7 +287,7 @@ const MineGame: React.FC = () => {
                 // After successful blockchain cashout, process on backend
                 try {
                     const { data } = await axiosServices.post(`${MINE_API}/cashout`, {
-                        txHash: cashoutResult.txHash,
+                        txHash: cashoutResult.txHash || `cashout-${Date.now()}-${gameId}`,
                     });
                     
                     if (data.status === "END") {

@@ -6,13 +6,15 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "generate-casino-address": "node scripts/generate-casino-address-simple.js"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@heroui/react": "^2.7.8",
     "@metamask/detect-provider": "^2.0.0",
     "@metamask/providers": "^22.1.1",
+    "@qubic-lib/qubic-ts-library": "^0.1.6",
     "@solana/wallet-adapter-base": "^0.9.27",
     "@solana/wallet-adapter-react": "^0.15.39",
     "@solana/wallet-adapter-react-ui": "^0.9.39",

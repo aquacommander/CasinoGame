@@ -141,7 +141,7 @@ class CrashGameEngine {
         this.starImg.src = "/assets/image/star.png";
 
         this.explosionImage = new Image();
-        this.explosionImage.src = "/assets/image/explosion.png";
+        this.explosionImage.src = "/assets/image/expolition.png";
     }
 
     //first set canvas for drawing

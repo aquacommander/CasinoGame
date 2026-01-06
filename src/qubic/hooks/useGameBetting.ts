@@ -142,7 +142,7 @@ export function useGameBetting() {
     gameType: string,
     gameId: string,
     winAmount: number
-  ): Promise<{ success: boolean; error?: string }> => {
+  ): Promise<{ success: boolean; txHash?: string; error?: string }> => {
     if (!isAuthenticated) {
       return { success: false, error: 'Not authenticated' };
     }
@@ -160,7 +160,7 @@ export function useGameBetting() {
         // Refresh balance to reflect winnings
         await refreshBalance();
         toast.success('Cashout successful!');
-        return { success: true };
+        return { success: true, txHash: response.data?.txHash || response.data?.cashoutId?.toString() };
       } else {
         const error = response.data?.message || 'Cashout failed';
         toast.error(error);

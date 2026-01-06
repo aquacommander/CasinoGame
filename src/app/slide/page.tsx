@@ -16,6 +16,7 @@ import { useGameBetting } from "@/qubic/hooks/useGameBetting";
 import { useBalance } from "@/qubic/context/BalanceContext";
 import { useAuth } from "@/qubic/context/AuthContext";
 import toast from "react-hot-toast";
+import { audioManager } from "@/utils/audioManager";
 const socket: Socket = io(`${API_URL}/slide`);
 
 enum STATUS {
@@ -35,25 +36,19 @@ type Player = {
 
 
 const useAudio = () => {
-    const betAudioRef = useRef<HTMLAudioElement | null>(null);
-    const slidingAudioRef = useRef<HTMLAudioElement | null>(null);
-
-    useEffect(() => {
-        if (typeof window === "undefined") return;
-
-        betAudioRef.current = new Audio("/assets/audio/bet.DUx2OBl3.mp3");
-        slidingAudioRef.current = new Audio("/assets/audio/sliding.pgFKr6A8.mp3");
-    }, []);
+    const betAudioSrc = "/assets/audio/bet.DUx2OBl3.mp3";
+    const slidingAudioSrc = "/assets/audio/sliding.pgFKr6A8.mp3";
 
     const playAudio = (key: string) => {
-        const audio = key === "bet" ? betAudioRef.current : slidingAudioRef.current;
-        if (!audio) return;
-
+        const src = key === "bet" ? betAudioSrc : slidingAudioSrc;
+        
         try {
-            audio.muted = true;
-            audio.play().then(() => {
+            audioManager.playAudio(src, { muted: true }).then(() => {
                 setTimeout(() => {
-                    audio.muted = false;
+                    const audio = audioManager.getAudio(src);
+                    if (audio) {
+                        audio.muted = false;
+                    }
                 }, 1000);
             }).catch((error) => {
                 console.error("Failed to autoplay audio:", error);

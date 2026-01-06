@@ -1,5 +1,5 @@
 'use client';
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Layout from "@/layout/layout";
 import { Button, Image } from "@heroui/react";
 import Link from "next/link";
@@ -13,11 +13,32 @@ const dancing = Dancing_Script({
 
 
 const GameBoard = () => {
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const [isMounted, setIsMounted] = useState(false);
+
+    useEffect(() => {
+        setIsMounted(true);
+        // Ensure video plays on mount
+        if (videoRef.current) {
+            videoRef.current.play().catch((error) => {
+                console.log('Video autoplay prevented:', error);
+            });
+        }
+    }, []);
 
     return (
         <StyledWrapper>
             <div className="relative">
-                <video muted autoPlay loop poster="/assets/image/post.png" className="object-fill w-screen h-screen">
+                <video 
+                    ref={videoRef}
+                    muted 
+                    autoPlay 
+                    loop 
+                    playsInline
+                    poster="/assets/image/post.png" 
+                    className="object-fill w-screen h-screen"
+                    suppressHydrationWarning
+                >
                     <source src="/assets/video/car.mp4" />
                 </video>
                 <Image src="/assets/image/logo.png" alt="logo" className="w-44 fixed top-5 left-5" />
