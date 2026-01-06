@@ -93,6 +93,7 @@ const MineGame: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [mineAreas, setMineAreas] = useState<MineArea[]>([]);
     const [autoAreas, setAutoAreas] = useState<MineArea[]>([]);
+    const [gameId, setGameId] = useState<string>("");
 
     const statusRef = useRef<any>(null);
     const [resultVisible, setResultVisible] = useState(false);
@@ -121,6 +122,7 @@ const MineGame: React.FC = () => {
         setMineAreas([]);
         setStatus(GAME_STATUS.READY);
         setLoading(false);
+        setGameId("");
     };
 
     const handleApiError = (point?: number) => {
