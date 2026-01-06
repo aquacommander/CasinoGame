@@ -55,13 +55,8 @@ if (typeof window !== 'undefined') {
     console.warn('Qubic library not available. Install @qubic-lib/qubic-ts-library to enable full functionality.');
   }
   
-  try {
-    // @ts-ignore
-    const qubicVault = require('@qubic-lib/qubic-ts-vault-library');
-    if (qubicVault?.QubicVault) QubicVault = qubicVault.QubicVault;
-  } catch (e) {
-    console.warn('Qubic vault library not available. Install @qubic-lib/qubic-ts-vault-library to enable vault functionality.');
-  }
+  // QubicVault is loaded dynamically when needed (in vaultFileConnect function)
+  // This prevents build-time errors if the library is not installed
 }
 
 interface Wallet {
@@ -290,8 +285,20 @@ export function QubicConnectProvider({ children }: QubicConnectProviderProps) {
       alert("Please select a file and enter a password.");
       throw new Error("File and password required");
     }
+    
+    // Dynamically load QubicVault library if not already loaded
     if (!QubicVault) {
-      throw new Error("Qubic vault library not installed. Please install @qubic-lib/qubic-ts-vault-library");
+      try {
+        // @ts-ignore - Optional dependency
+        const qubicVault = await import('@qubic-lib/qubic-ts-vault-library');
+        if (qubicVault?.QubicVault) {
+          QubicVault = qubicVault.QubicVault;
+        } else {
+          throw new Error("Qubic vault library not installed. Please install @qubic-lib/qubic-ts-vault-library");
+        }
+      } catch (e) {
+        throw new Error("Qubic vault library not installed. Please install @qubic-lib/qubic-ts-vault-library");
+      }
     }
     const vault = new QubicVault();
 
