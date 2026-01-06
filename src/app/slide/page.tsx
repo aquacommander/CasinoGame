@@ -12,6 +12,10 @@ import MultiPlierInput from "@/components/MultiplierInput";
 import CurrentBets from "@/components/CurrentBets";
 import Slider, { findTile } from "@/components/Slider";
 import Layout from "@/layout/layout";
+import { useGameBetting } from "@/qubic/hooks/useGameBetting";
+import { useBalance } from "@/qubic/context/BalanceContext";
+import { useAuth } from "@/qubic/context/AuthContext";
+import toast from "react-hot-toast";
 const socket: Socket = io(`${API_URL}/slide`);
 
 enum STATUS {
@@ -66,12 +70,18 @@ const useAudio = () => {
 const SlideGame = () => {
     const isMobile = useIsMobile();
 
+    // Blockchain integration hooks
+    const { placeBet: blockchainPlaceBet, cashout: blockchainCashout, isProcessing: isProcessingBet } = useGameBetting();
+    const { hasEnoughBalance, getBalance } = useBalance();
+    const { isAuthenticated } = useAuth();
+
     const [activeTab, setActiveTab] = useState<number>(0);
     const [betAmount, setBetAmount] = useState<number>(0);
     const [target, setTarget] = useState<number>(0);
     const betCount = useRef<number>(0);
     const [autobet, setAutobet] = useState<boolean>(false);
     const [bets, setBets] = useState<any[]>([]);
+    const [gameId, setGameId] = useState<string>("");
 
     const [history, setHistory] = useState<any[]>([]);
 
@@ -187,7 +197,7 @@ const SlideGame = () => {
     const stopOnProfit = useRef(0);
     const stopOnLoss = useRef(0);
     const { playAudio } = useAudio();
-    const createbet = () => {
+    const createbet = async () => {
         console.log(status, STATUS.BETTING);
 
         stopOnProfit.current = stopProfitA;
@@ -195,22 +205,24 @@ const SlideGame = () => {
 
         if (Number(betAmount) <= 0) {
             setAmountInputFlag(false);
-            // toast.success("Please input your bet amount!", {
-            //     style: {
-            //         border: "1px solid #713200",
-            //         padding: "14px",
-            //         color: "#713200",
-            //     },
-            //     iconTheme: {
-            //         primary: "#713200",
-            //         secondary: "#FFFAEE",
-            //     },
-            // });
+            toast.error("Please input your bet amount!");
             return;
-        };
+        }
+
+        // Check authentication
+        if (!isAuthenticated) {
+            toast.error("Please connect your wallet first!");
+            return;
+        }
+
+        // Check balance
+        if (!hasEnoughBalance(betAmount)) {
+            toast.error(`Insufficient balance. You have ${getBalance().toFixed(4)} QUBIC`);
+            return;
+        }
 
         if (status !== STATUS.BETTING) {
-
+            // Planning bet for next round
             savedBet.current = {
                 target,
                 betAmount,
@@ -228,11 +240,38 @@ const SlideGame = () => {
 
             console.log(target, savedBet.current)
             setPlanedBet(true);
+            toast.success(`Bet planned for next round: ${betAmount} QUBIC at ${target}x`);
         } else {
-            socket?.emit("join-game", target, betAmount, "");
-            setBetting(true);
-            inputDisable.current = true;
-            console.log('join-game')
+            // Place bet with blockchain transaction first
+            toast.loading("Processing bet transaction...", { id: 'bet-processing' });
+            
+            const betResult = await blockchainPlaceBet({
+                amount: betAmount,
+                gameType: 'slide',
+                gameId: gameId || undefined,
+                metadata: {
+                    target: target,
+                    currencyId: "",
+                },
+                onSuccess: (txHash) => {
+                    toast.success("Bet placed successfully! Joining game...", { id: 'bet-processing' });
+                    // After successful blockchain transaction, emit to socket
+                    socket?.emit("join-game", target, betAmount, "");
+                    setBetting(true);
+                    inputDisable.current = true;
+                    console.log('join-game')
+                },
+                onError: (error) => {
+                    console.error('Bet placement failed:', error);
+                    toast.error(`Bet failed: ${error}`, { id: 'bet-processing' });
+                },
+            });
+
+            if (!betResult.success) {
+                toast.error(`Bet failed: ${betResult.error || 'Unknown error'}`, { id: 'bet-processing' });
+                return;
+            }
+
             if (autobet) {
                 betCount.current = betcount;
                 savedBet.current = {
@@ -247,29 +286,81 @@ const SlideGame = () => {
     }
 
 
-    const startBetting = () => {
+    const startBetting = async () => {
         if (autobet) {
             if (planedbet) {
 
                 if (stopProfitA !== 0 && stopOnProfit.current <= 0) {
                     setPlanedBet(false)
+                    toast("Auto-bet stopped: Profit limit reached", { icon: "ℹ️" });
                     return;
                 }
                 // check stop on loss amount
                 if (stopLossA !== 0 && stopOnLoss.current <= 0 && Math.abs(stopOnLoss.current) > Math.abs(stopOnProfit.current)) {
                     setPlanedBet(false)
+                    toast("Auto-bet stopped: Loss limit reached", { icon: "ℹ️" });
+                    return;
                 }
 
                 if (savedBet.current.infinity && betCount.current > 0) {
                     betCount.current--;
                     setBetCount(betCount.current);
-                    socket?.emit("join-game", savedBet.current.target, savedBet.current.betAmount, savedBet.current.currencyId);
-                    setBetting(true);
-                    inputDisable.current = true;
+                    
+                    toast.loading("Processing auto-bet transaction...", { id: 'auto-bet-processing' });
+                    
+                    // Place bet with blockchain transaction
+                    const betResult = await blockchainPlaceBet({
+                        amount: savedBet.current.betAmount,
+                        gameType: 'slide',
+                        gameId: gameId || undefined,
+                        metadata: {
+                            target: savedBet.current.target,
+                            currencyId: savedBet.current.currencyId,
+                        },
+                        onSuccess: (txHash) => {
+                            toast.success("Auto-bet placed!", { id: 'auto-bet-processing' });
+                            socket?.emit("join-game", savedBet.current.target, savedBet.current.betAmount, savedBet.current.currencyId);
+                            setBetting(true);
+                            inputDisable.current = true;
+                        },
+                        onError: (error) => {
+                            console.error('Bet placement failed:', error);
+                            toast.error(`Auto-bet failed: ${error}`, { id: 'auto-bet-processing' });
+                        },
+                    });
+
+                    if (!betResult.success) {
+                        toast.error(`Auto-bet failed: ${betResult.error || 'Unknown error'}`, { id: 'auto-bet-processing' });
+                        return;
+                    }
                 } else if (!savedBet.current.infinity) {
-                    socket?.emit("join-game", savedBet.current.target, savedBet.current.betAmount, savedBet.current.currencyId);
-                    setBetting(true);
-                    inputDisable.current = true;
+                    toast.loading("Processing auto-bet transaction...", { id: 'auto-bet-processing' });
+                    
+                    // Place bet with blockchain transaction
+                    const betResult = await blockchainPlaceBet({
+                        amount: savedBet.current.betAmount,
+                        gameType: 'slide',
+                        gameId: gameId || undefined,
+                        metadata: {
+                            target: savedBet.current.target,
+                            currencyId: savedBet.current.currencyId,
+                        },
+                        onSuccess: (txHash) => {
+                            toast.success("Auto-bet placed!", { id: 'auto-bet-processing' });
+                            socket?.emit("join-game", savedBet.current.target, savedBet.current.betAmount, savedBet.current.currencyId);
+                            setBetting(true);
+                            inputDisable.current = true;
+                        },
+                        onError: (error) => {
+                            console.error('Bet placement failed:', error);
+                            toast.error(`Auto-bet failed: ${error}`, { id: 'auto-bet-processing' });
+                        },
+                    });
+
+                    if (!betResult.success) {
+                        toast.error(`Auto-bet failed: ${betResult.error || 'Unknown error'}`, { id: 'auto-bet-processing' });
+                        return;
+                    }
                 } else {
                     savedBet.current = undefined;
                     setPlanedBet(false);
@@ -277,9 +368,34 @@ const SlideGame = () => {
             }
         } else {
             if (planedbet) {
-                socket?.emit("join-game", savedBet.current.target, savedBet.current.betAmount, savedBet.current.currencyId);
-                inputDisable.current = true;
-                setBetting(true);
+                toast.loading("Processing bet transaction...", { id: 'bet-processing' });
+                
+                // Place bet with blockchain transaction
+                const betResult = await blockchainPlaceBet({
+                    amount: savedBet.current.betAmount,
+                    gameType: 'slide',
+                    gameId: gameId || undefined,
+                    metadata: {
+                        target: savedBet.current.target,
+                        currencyId: savedBet.current.currencyId,
+                    },
+                    onSuccess: (txHash) => {
+                        toast.success("Bet placed successfully! Joining game...", { id: 'bet-processing' });
+                        socket?.emit("join-game", savedBet.current.target, savedBet.current.betAmount, savedBet.current.currencyId);
+                        inputDisable.current = true;
+                        setBetting(true);
+                    },
+                    onError: (error) => {
+                        console.error('Bet placement failed:', error);
+                        toast.error(`Bet failed: ${error}`, { id: 'bet-processing' });
+                    },
+                });
+
+                if (!betResult.success) {
+                    toast.error(`Bet failed: ${betResult.error || 'Unknown error'}`, { id: 'bet-processing' });
+                    return;
+                }
+
                 savedBet.current = undefined;
                 setPlanedBet(false);
             }
@@ -291,6 +407,12 @@ const SlideGame = () => {
 
         setBetting(false);
         playAudio("bet");
+        toast.success("Successfully joined the game!");
+
+        // Store game ID if provided
+        if (data.gameId || data._id) {
+            setGameId(data.gameId || data._id);
+        }
 
         if (planedbet && stopLossA !== 0) {
             stopOnLoss.current -= savedBet.current.betAmount;
@@ -299,10 +421,11 @@ const SlideGame = () => {
 
     const joinFailed = (data: any) => {
         setBetting(false);
+        toast.error(data?.message || "Failed to join game. Please try again.");
     }
 
 
-    const handleStatus = (data: any) => {
+    const handleStatus = async (data: any) => {
         if (data.status === STATUS.STARTING) {
             setBets([]);
             setPublicSeed(data.publicSeed);
@@ -310,6 +433,7 @@ const SlideGame = () => {
             setStatus(STATUS.STARTING);
             inputDisable.current = false;
             if (data._id) {
+                setGameId(data._id);
                 addGameToHistory({ _id: data._id, resultpoint: data.crashPoint })
             }
         } else if (data.status === STATUS.BETTING) {
@@ -339,6 +463,9 @@ const SlideGame = () => {
     };
 
     const getButtonContent = () => {
+        if (isProcessingBet)
+            return "Processing Transaction..."
+        
         if (betting)
             return "Betting..."
 
@@ -422,7 +549,7 @@ const SlideGame = () => {
         }
     }, [])
 
-    const disable = inputDisable.current || planedbet;
+    const disable = inputDisable.current || planedbet || isProcessingBet;
 
     useEffect(() => {
         setAutobet(activeTab == 1)
@@ -466,18 +593,21 @@ const SlideGame = () => {
                     </div>
                     {isMobile &&
                         <div className="col-span-1 p-2 min-h-[560px] bg-sider_panel shadow-[0px_0px_15px_rgba(0,0,0,0.25)] flex flex-col justify-between">
-                            <Button disabled={disable} onClick={() => {
-                                if (betting || inputDisable.current)
+                            <Button disabled={disable || isProcessingBet} onClick={async () => {
+                                if (betting || inputDisable.current || isProcessingBet)
                                     return;
                                 if (status === STATUS.PLAYING) {
                                     if (planedbet) {
                                         savedBet.current = undefined;
                                         setPlanedBet(false);
+                                        toast("Bet cancelled", { icon: "ℹ️" });
                                     } else {
-                                        createbet();
+                                        await createbet();
                                     }
                                 } else if (status === STATUS.BETTING) {
-                                    createbet();
+                                    await createbet();
+                                } else if (status === STATUS.STARTING || status === STATUS.WAITTING) {
+                                    toast("Please wait for the betting phase to start", { icon: "ℹ️" });
                                 }
                             }}>{getButtonContent()}
                             </Button>
@@ -498,18 +628,21 @@ const SlideGame = () => {
                             <SwitchTab onChange={setActiveTab} active={activeTab} disabled={disable} />
                             <AmountInput onChange={setBetAmount} value={betAmount} disabled={disable} />
                             <MultiPlierInput onChange={setTarget} value={target} disabled={disable} />
-                            <Button className="bg-[#00e701] hover:bg-[#00d600] rounded-full uppercase font-bold" disabled={disable} onPress={() => {
-                                if (betting || inputDisable.current)
+                            <Button className="bg-[#00e701] hover:bg-[#00d600] rounded-full uppercase font-bold" disabled={disable || isProcessingBet} onPress={async () => {
+                                if (betting || inputDisable.current || isProcessingBet)
                                     return;
                                 if (status === STATUS.PLAYING) {
                                     if (planedbet) {
                                         savedBet.current = undefined;
                                         setPlanedBet(false);
+                                        toast("Bet cancelled", { icon: "ℹ️" });
                                     } else {
-                                        createbet();
+                                        await createbet();
                                     }
                                 } else if (status === STATUS.BETTING) {
-                                    createbet();
+                                    await createbet();
+                                } else if (status === STATUS.STARTING || status === STATUS.WAITTING) {
+                                    toast("Please wait for the betting phase to start", { icon: "ℹ️" });
                                 }
                             }}>{
                                     getButtonContent()

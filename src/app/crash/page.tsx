@@ -17,7 +17,10 @@ import useIsMobile from "@/hooks/useIsMobile";
 import Layout from "@/layout/layout";
 import { Button } from "@heroui/react";
 import React, { useEffect, useRef, useState } from "react";
-// import toast from "react-hot-toast";
+import { useGameBetting } from "@/qubic/hooks/useGameBetting";
+import { useBalance } from "@/qubic/context/BalanceContext";
+import { useAuth } from "@/qubic/context/AuthContext";
+import toast from "react-hot-toast";
 
 // import { crashXSocket as socket } from "../../utils/socket";
 
@@ -56,6 +59,11 @@ const playSound = (audioFile: any) => {
 
 const CrashGame = () => {
     const isMobile = useIsMobile();
+
+    // Blockchain integration hooks
+    const { placeBet, cashout: blockchainCashout, isProcessing: isProcessingBet } = useGameBetting();
+    const { hasEnoughBalance, getBalance } = useBalance();
+    const { isAuthenticated } = useAuth();
 
     const [activeTab, setActiveTab] = useState(0);
 
@@ -97,6 +105,7 @@ const CrashGame = () => {
     const selfId = useRef(null);
     const savedTarget = useRef(0);
     const [privateSeed, setPrivateSeed] = useState("");
+    const [winAmount, setWinAmount] = useState(0);
 
     const currency: any = {};
 
@@ -108,38 +117,28 @@ const CrashGame = () => {
     }
 
 
-    // Emit new bet event
-    const clickBet = () => {
+    // Emit new bet event with blockchain transaction
+    const clickBet = async () => {
         if (betAmount <= 0) {
             setAmountInputFlag(false);
-            // toast.success("Please input your bet amount!", {
-            //     style: {
-            //         border: "1px solid #713200",
-            //         padding: "14px",
-            //         color: "#713200",
-            //     },
-            //     iconTheme: {
-            //         primary: "#713200",
-            //         secondary: "#FFFAEE",
-            //     },
-            // });
+            toast.error("Please input your bet amount!");
             return;
         }
 
-        if (betAmount * currency?.price > 100) {
-            // toast.success(`The max bet amount is ${Math.floor(100 / currency?.price * 100) / 100} ${currency?.symbol}!`, {
-            //     style: {
-            //         border: '1px solid #713200',
-            //         padding: '8px',
-            //         color: '#713200',
-            //         color: 'black',
-            //     },
-            //     iconTheme: {
-            //         primary: '#ffe71a',
-            //         secondary: '#FFFAEE',
-            //     },
-            //     icon: '⚠',
-            // });
+        // Check authentication
+        if (!isAuthenticated) {
+            toast.error("Please connect your wallet first!");
+            return;
+        }
+
+        // Check balance
+        if (!hasEnoughBalance(betAmount)) {
+            toast.error(`Insufficient balance. You have ${getBalance().toFixed(4)} QUBIC`);
+            return;
+        }
+
+        if (betAmount * (currency?.price || 1) > 100) {
+            toast.error(`The max bet amount is ${Math.floor(100 / (currency?.price || 1) * 100) / 100}!`);
             return;
         }
 
@@ -150,7 +149,30 @@ const CrashGame = () => {
         if (gameState === GAME_STATES.Starting) {
             setJoining(true);
             savedTarget.current = target * 100;
-            crashSocket.emit("join-game", target * 100, betAmount, currency._id);
+            
+            // Place bet with blockchain transaction first
+            const betResult = await placeBet({
+                amount: betAmount,
+                gameType: 'crash',
+                gameId: gameId || undefined,
+                metadata: {
+                    target: target * 100,
+                    currencyId: currency._id || '',
+                },
+                onSuccess: (txHash) => {
+                    // After successful blockchain transaction, emit to socket
+                    crashSocket.emit("join-game", target * 100, betAmount, currency._id || "");
+                },
+                onError: (error) => {
+                    setJoining(false);
+                    console.error('Bet placement failed:', error);
+                },
+            });
+
+            if (!betResult.success) {
+                setJoining(false);
+                return;
+            }
         } else {
             if (plannedBet) {
                 savedTarget.current = 0;
@@ -169,9 +191,25 @@ const CrashGame = () => {
         setPlannedBet(false);
     };
 
-    // Emit bet cashout
-    const clickCashout = () => {
-        crashSocket.emit("bet-cashout");
+    // Emit bet cashout with blockchain transaction
+    const clickCashout = async () => {
+        if (!betting || !isAuthenticated) {
+            return;
+        }
+
+        // Calculate win amount based on current payout
+        const calculatedWinAmount = betAmount * payout;
+        setWinAmount(calculatedWinAmount);
+
+        // Process cashout with blockchain
+        const cashoutResult = await blockchainCashout('crash', gameId, calculatedWinAmount);
+        
+        if (cashoutResult.success) {
+            // After successful blockchain cashout, emit to socket
+            crashSocket.emit("bet-cashout");
+        } else {
+            toast.error(cashoutResult.error || 'Cashout failed');
+        }
     };
 
     // handle target value
@@ -439,7 +477,7 @@ const CrashGame = () => {
         }
     }, [betAmount]);
 
-    const disabled = joining || betting || autoBetEnabled;
+    const disabled = joining || betting || autoBetEnabled || isProcessingBet;
     const isAuto = activeTab === 1;
 
     const useAudio = () => {
@@ -700,14 +738,18 @@ const CrashGame = () => {
                                             }}
                                         >
                                             {!betting
-                                                ? joining
-                                                    ? "BETTING..."
+                                                ? joining || isProcessingBet
+                                                    ? isProcessingBet
+                                                        ? "PROCESSING TRANSACTION..."
+                                                        : "BETTING..."
                                                     : plannedBet
                                                         ? "CANCEL BET"
                                                         : "Place Bet (next round)"
                                                 : cashedOut
                                                     ? "CASHED OUT"
-                                                    : "CASHOUT"}
+                                                    : isProcessingBet
+                                                        ? "PROCESSING CASHOUT..."
+                                                        : "CASHOUT"}
                                         </Button>
                                     )}
 

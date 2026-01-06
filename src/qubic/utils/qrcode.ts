@@ -6,9 +6,14 @@ import QRCode from "qrcode";
  * @returns Promise<string> - Data URL of the QR code image
  */
 export async function generateQRCode(data: string): Promise<string> {
+  if (typeof window === 'undefined') {
+    throw new Error("QR code generation is only available in the browser");
+  }
+  
   if (!data || data.trim() === "") {
     throw new Error("QR code data cannot be empty");
   }
+  
   try {
     const qrCodeDataUrl = await QRCode.toDataURL(data, {
       width: 300,
