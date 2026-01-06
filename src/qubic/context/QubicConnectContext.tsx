@@ -127,6 +127,10 @@ export function QubicConnectProvider({ children }: QubicConnectProviderProps) {
     setWallet(null);
     setConnected(false);
     setBalances([]);
+    
+    // Also disconnect WalletConnect if it was connected
+    // Note: We can't directly import useWalletConnect here due to hook rules,
+    // so we'll handle WalletConnect disconnection in the component that calls disconnect
   };
 
   const toggleConnectModal = (): void => {

@@ -13,6 +13,10 @@ import Layout from "@/layout/layout";
 import axiosServices from "@/util/axios";
 import { Button, Switch } from "@heroui/react";
 import { useEffect, useRef, useState } from "react";
+import { useGameBetting } from "@/qubic/hooks/useGameBetting";
+import { useBalance } from "@/qubic/context/BalanceContext";
+import { useAuth } from "@/qubic/context/AuthContext";
+import toast from "react-hot-toast";
 const MINE_API = "/mine";
 
 function calculateMinesGame(mines: number, picks: number, bet: number): any {
@@ -76,6 +80,12 @@ function calculateMinesGame(mines: number, picks: number, bet: number): any {
 
 const MineGame: React.FC = () => {
     const isMobile = useIsMobile();
+    
+    // Blockchain integration hooks
+    const { placeBet: blockchainPlaceBet, cashout: blockchainCashout, isProcessing: isProcessingBet } = useGameBetting();
+    const { hasEnoughBalance, getBalance } = useBalance();
+    const { isAuthenticated } = useAuth();
+    
     const [activeTab, setActiveTab] = useState(0); // 0 for Manual, 1 for Auto
     const [mineCount, setMineCount] = useState<number>(3);
     const [betAmount, setBetAmount] = useState<number>(0);
@@ -136,19 +146,66 @@ const MineGame: React.FC = () => {
     };
 
     const createBet = async () => {
-        if (loading) return;
+        if (loading || isProcessingBet) return;
+        
+        // Check authentication
+        if (!isAuthenticated) {
+            toast.error("Please connect your wallet first!");
+            return;
+        }
+
+        // Check balance
+        if (!hasEnoughBalance(betAmount)) {
+            toast.error(`Insufficient balance. You have ${getBalance().toFixed(4)} QUBIC`);
+            return;
+        }
+
         resetGame();
         setLoading(true);
+        
         try {
-            const { data } = await axiosServices.post(`${MINE_API}/create`, {
-                mines: mineCount,
+            // Place blockchain transaction first
+            const betResult = await blockchainPlaceBet({
                 amount: betAmount,
+                gameType: 'mines',
+                metadata: {
+                    mines: mineCount,
+                },
+                onSuccess: async (txHash) => {
+                    // After successful blockchain transaction, create game on backend
+                    try {
+                        const { data } = await axiosServices.post(`${MINE_API}/create`, {
+                            mines: mineCount,
+                            amount: betAmount,
+                            txHash: txHash,
+                        });
+                        
+                        if (data.status === "BET") {
+                            setGameId(data.gameId || data._id || "");
+                            setStatus(GAME_STATUS.LIVE);
+                            setLoading(false);
+                        } else {
+                            checkActiveGame();
+                            setLoading(false);
+                        }
+                    } catch (error) {
+                        handleApiError();
+                    }
+                },
+                onError: (error) => {
+                    console.error('Bet placement failed:', error);
+                    setLoading(false);
+                },
             });
-            data.status === "BET" ? setStatus(GAME_STATUS.LIVE) : checkActiveGame();
+
+            if (!betResult.success) {
+                setLoading(false);
+                return;
+            }
         } catch (error) {
             handleApiError();
+            setLoading(false);
         }
-        setLoading(false);
     };
 
     const selectArea = async (point: number) => {
@@ -207,21 +264,51 @@ const MineGame: React.FC = () => {
     };
 
     const cashout = async () => {
-        if (status !== GAME_STATUS.LIVE || loading || mineAreas.length === 0)
+        if (status !== GAME_STATUS.LIVE || loading || mineAreas.length === 0 || isProcessingBet)
             return;
+        
+        if (!isAuthenticated) {
+            toast.error("Please connect your wallet first!");
+            return;
+        }
+
         setLoading(true);
+        
         try {
-            const { data } = await axiosServices.post(`${MINE_API}/cashout`);
-            if (data.status === "END") {
-                setResult({
-                    odds: profitAndOdds.probability,
-                    profit: profitAndOdds.roundedWinAmount,
-                });
-                setMineAreas(data.datas);
-                setStatus(GAME_STATUS.READY);
-                setResultVisible(true);
-            } else checkActiveGame();
-        } catch (error) { }
+            // Calculate win amount
+            const winAmount = profitAndOdds.roundedWinAmount;
+            
+            // Process blockchain cashout first
+            const cashoutResult = await blockchainCashout('mines', gameId, winAmount);
+            
+            if (cashoutResult.success) {
+                // After successful blockchain cashout, process on backend
+                try {
+                    const { data } = await axiosServices.post(`${MINE_API}/cashout`, {
+                        txHash: cashoutResult.txHash,
+                    });
+                    
+                    if (data.status === "END") {
+                        setResult({
+                            odds: profitAndOdds.probability,
+                            profit: profitAndOdds.roundedWinAmount,
+                        });
+                        setMineAreas(data.datas);
+                        setStatus(GAME_STATUS.READY);
+                        setResultVisible(true);
+                    } else {
+                        checkActiveGame();
+                    }
+                } catch (error) {
+                    console.error('Cashout error:', error);
+                }
+            } else {
+                toast.error(cashoutResult.error || 'Cashout failed');
+            }
+        } catch (error) {
+            console.error('Cashout error:', error);
+        }
+        
         setLoading(false);
     };
 

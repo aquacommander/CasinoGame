@@ -181,12 +181,20 @@ export function WalletConnectProvider({ children }: WalletConnectProviderProps) 
   };
 
   useEffect(() => {
+    // Get the current origin for metadata URL (works for both local and deployed)
+    const getMetadataUrl = () => {
+      if (typeof window !== 'undefined') {
+        return window.location.origin;
+      }
+      return "https://www.qxboard.com"; // fallback
+    };
+
     SignClient.init({
       projectId: "2697d842a392d20a355416a260f58276",
       metadata: {
         name: "QXBoard",
         description: "QXBoard",
-        url: "https://www.qxboard.com",
+        url: getMetadataUrl(),
         icons: ["https://walletconnect.com/walletconnect-logo.png"],
       },
     }).then((client) => {

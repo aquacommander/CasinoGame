@@ -41,7 +41,7 @@ const ConnectModal = ({ open, onClose, darkMode }: { open: boolean; onClose: () 
   // WC
   const [qrCode, setQrCode] = useState<string>("");
   const [connectionURI, setConnectionURI] = useState<string>("");
-  const { connect: walletConnectConnect, isConnected, requestAccounts } = useWalletConnect();
+  const { connect: walletConnectConnect, isConnected, requestAccounts, disconnect: walletConnectDisconnect } = useWalletConnect();
 
   const modalVariants = {
     hidden: { opacity: 0, scale: 0.9 },
@@ -63,12 +63,44 @@ const ConnectModal = ({ open, onClose, darkMode }: { open: boolean; onClose: () 
 
   const generateURI = async () => {
     try {
+      // Reset previous state
+      setQrCode("");
+      setConnectionURI("");
+      
       const { uri, approve } = await walletConnectConnect();
       if (uri && uri.trim() !== "") {
         setConnectionURI(uri);
-        const result = await generateQRCode(uri);
-        setQrCode(result);
-        await approve();
+        try {
+          // Generate QR code - this should work in both dev and production
+          const result = await generateQRCode(uri);
+          setQrCode(result);
+          
+          // Start the approval process (this waits for user to scan and approve)
+          // Don't await it - let it run in background
+          approve().catch((error) => {
+            console.error("WalletConnect approval error:", error);
+            // Reset state on error
+            setQrCode("");
+            setConnectionURI("");
+          });
+        } catch (qrError) {
+          console.error("Error generating QR code:", qrError);
+          // Retry QR code generation with a small delay
+          setTimeout(async () => {
+            try {
+              const result = await generateQRCode(uri);
+              setQrCode(result);
+              // Start approval after successful QR generation
+              approve().catch((error) => {
+                console.error("WalletConnect approval error:", error);
+                setQrCode("");
+                setConnectionURI("");
+              });
+            } catch (retryError) {
+              console.error("Retry QR code generation failed:", retryError);
+            }
+          }, 500);
+        }
       } else {
         console.error("WalletConnect URI is empty");
       }
@@ -80,18 +112,37 @@ const ConnectModal = ({ open, onClose, darkMode }: { open: boolean; onClose: () 
   useEffect(() => {
     if (isConnected) {
       const fetchAccounts = async () => {
-        const accounts = await requestAccounts();
-        setAccounts(
-          accounts.map((account) => ({
-            publicId: account.address,
-            alias: account.name,
-          })),
-        );
-        setSelectedMode("account-select");
+        try {
+          const accounts = await requestAccounts();
+          setAccounts(
+            accounts.map((account) => ({
+              publicId: account.address,
+              alias: account.name,
+            })),
+          );
+          setSelectedMode("account-select");
+        } catch (error) {
+          console.error("Error fetching accounts:", error);
+        }
       };
       fetchAccounts();
     }
-  }, [isConnected]);
+  }, [isConnected, requestAccounts]);
+
+  // Reset state when modal closes
+  useEffect(() => {
+    if (!open) {
+      setSelectedMode("none");
+      setQrCode("");
+      setConnectionURI("");
+      setAccounts([]);
+      setSelectedAccount(0);
+      setPrivateSeed("");
+      setErrorMsgPrivateSeed("");
+      setSelectedFile(null);
+      setPassword("");
+    }
+  }, [open]);
 
   // check if input is valid seed (55 chars and only lowercase letters)
   const privateKeyValidate = (pk: string) => {
@@ -121,6 +172,10 @@ const ConnectModal = ({ open, onClose, darkMode }: { open: boolean; onClose: () 
           className="fixed left-0 top-0 z-50 flex h-full w-full overflow-y-auto overflow-x-hidden p-5 bg-black/60 backdrop-blur-sm"
           onClick={() => {
             setSelectedMode("none");
+            setQrCode("");
+            setConnectionURI("");
+            setAccounts([]);
+            setSelectedAccount(0);
             onClose();
           }}
           variants={overlayVariants}
@@ -145,7 +200,17 @@ const ConnectModal = ({ open, onClose, darkMode }: { open: boolean; onClose: () 
                   </div>
                   <span className="text-xl font-bold lowercase">qubic connect</span>
                 </div>
-                <IoClose onClick={onClose} className="h-5 w-5 cursor-pointer hover:opacity-70" />
+                <IoClose 
+                  onClick={() => {
+                    setSelectedMode("none");
+                    setQrCode("");
+                    setConnectionURI("");
+                    setAccounts([]);
+                    setSelectedAccount(0);
+                    onClose();
+                  }} 
+                  className="h-5 w-5 cursor-pointer hover:opacity-70" 
+                />
               </motion.div>
 
               <AnimatePresence mode="wait">
@@ -158,7 +223,28 @@ const ConnectModal = ({ open, onClose, darkMode }: { open: boolean; onClose: () 
                     exit="exit"
                   >
                     {connected && (
-                      <Button variant="solid" className="mt-4" onClick={() => disconnect()}>
+                      <Button 
+                        variant="solid" 
+                        className="mt-4" 
+                        onClick={async () => {
+                          // Disconnect WalletConnect if connected
+                          if (isConnected) {
+                            try {
+                              await walletConnectDisconnect();
+                            } catch (error) {
+                              console.error("Error disconnecting WalletConnect:", error);
+                            }
+                          }
+                          // Disconnect QubicConnect
+                          disconnect();
+                          // Reset modal state
+                          setSelectedMode("none");
+                          setQrCode("");
+                          setConnectionURI("");
+                          setAccounts([]);
+                          setSelectedAccount(0);
+                        }}
+                      >
                         Disconnect Wallet
                       </Button>
                     )}
@@ -370,7 +456,15 @@ const ConnectModal = ({ open, onClose, darkMode }: { open: boolean; onClose: () 
                       >
                         Open in Qubic Wallet
                       </Button>
-                      <Button variant="bordered" className="text-gray-300 border-gray-600 hover:bg-gray-800 hover:text-white" onClick={() => setSelectedMode("none")}>
+                      <Button 
+                        variant="bordered" 
+                        className="text-gray-300 border-gray-600 hover:bg-gray-800 hover:text-white" 
+                        onClick={() => {
+                          setSelectedMode("none");
+                          setQrCode("");
+                          setConnectionURI("");
+                        }}
+                      >
                         Cancel
                       </Button>
                     </div>

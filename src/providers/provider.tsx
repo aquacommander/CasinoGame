@@ -8,6 +8,8 @@ import io from "socket.io-client";
 import { SolanaProvider } from './solana';
 import { WalletConnectProvider } from '@/qubic/context/WalletConnectContext';
 import { QubicConnectProvider } from '@/qubic/context/QubicConnectContext';
+import { AuthProvider } from '@/qubic/context/AuthContext';
+import { BalanceProvider } from '@/qubic/context/BalanceContext';
 
 // Export individual socket connections
 const crashSocket = io(`${API_URL}/crashx`);
@@ -43,9 +45,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <SocketContext.Provider value={crashSocket}>
         <WalletConnectProvider>
           <QubicConnectProvider>
-            <SolanaProvider>
-              {children}
-            </SolanaProvider>
+            <AuthProvider>
+              <BalanceProvider>
+                <SolanaProvider>
+                  {children}
+                </SolanaProvider>
+              </BalanceProvider>
+            </AuthProvider>
           </QubicConnectProvider>
         </WalletConnectProvider>
       </SocketContext.Provider>

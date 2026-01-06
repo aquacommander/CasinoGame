@@ -7,6 +7,10 @@ import axiosServices from "@/util/axios";
 import formatAmount from "@/util/formatAmount";
 import { Button } from "@heroui/react";
 import { useEffect, useRef, useState } from "react";
+import { useGameBetting } from "@/qubic/hooks/useGameBetting";
+import { useBalance } from "@/qubic/context/BalanceContext";
+import { useAuth } from "@/qubic/context/AuthContext";
+import toast from "react-hot-toast";
 
 
 
@@ -56,43 +60,105 @@ const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
 
 const VideoPoker = () => {
     const isMobile = useIsMobile();
+    
+    // Blockchain integration hooks
+    const { placeBet: blockchainPlaceBet, cashout: blockchainCashout, isProcessing: isProcessingBet } = useGameBetting();
+    const { hasEnoughBalance, getBalance } = useBalance();
+    const { isAuthenticated } = useAuth();
+    
     const [betAmount, setBetAmount] = useState<number>(0);
     const [dealing, setDealing] = useState(false);
     const [cards, setCards] = useState<Card[]>([undefined, undefined, undefined, undefined, undefined]);
     const [holds, setHolds] = useState<number[]>([]);
     const [gamestart, setStart] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [gameId, setGameId] = useState<string>("");
 
     const [privateHash, setPrivateHash] = useState("");
     const [privateSeed, setPrivateSeed] = useState("");
     const [publicSeed, setPublicSeed] = useState("");
 
     const handleDeal = async () => {
-        // let _cards: Card[] = dealHand(createDeck())
+        if (loading || isProcessingBet) return;
+        
         setLoading(true);
         playAudio("bet");
+        
         if (!dealing) {
+            // Starting a new game - place bet with blockchain transaction
+            // Check authentication
+            if (!isAuthenticated) {
+                toast.error("Please connect your wallet first!");
+                setLoading(false);
+                return;
+            }
+
+            // Check balance
+            if (!hasEnoughBalance(betAmount)) {
+                toast.error(`Insufficient balance. You have ${getBalance().toFixed(4)} QUBIC`);
+                setLoading(false);
+                return;
+            }
+
             try {
-                const { data } = await axiosServices.post("/video-poker/init", { betAmount, currencyId: "" })
-                setStart(true);
-                setHolds([]);
-                setCards(Array(5).fill(undefined));
-                setPrivateHash(data.privateSeedHash);
-                setPublicSeed(data.publicSeed);
-                setTimeout(() => {
-                    setCards(data.hand);
+                // Place blockchain transaction first
+                const betResult = await blockchainPlaceBet({
+                    amount: betAmount,
+                    gameType: 'videopoker',
+                    gameId: gameId || undefined,
+                    metadata: {},
+                    onSuccess: async (txHash) => {
+                        // After successful blockchain transaction, initialize game on backend
+                        try {
+                            const { data } = await axiosServices.post("/video-poker/init", { 
+                                betAmount, 
+                                currencyId: "",
+                                txHash: txHash,
+                            });
+                            
+                            setGameId(data.gameId || data._id || "");
+                            setStart(true);
+                            setHolds([]);
+                            setCards(Array(5).fill(undefined));
+                            setPrivateHash(data.privateSeedHash);
+                            setPublicSeed(data.publicSeed);
+                            setTimeout(() => {
+                                setCards(data.hand);
+                                setLoading(false);
+                                playAudio("dealing");
+                            }, 400);
+                        } catch (error) {
+                            setLoading(false);
+                            toast.error('Failed to initialize game');
+                        }
+                    },
+                    onError: (error) => {
+                        console.error('Bet placement failed:', error);
+                        setLoading(false);
+                    },
+                });
+
+                if (!betResult.success) {
                     setLoading(false);
-                    playAudio("dealing");
-                }, 400)
+                    return;
+                }
             } catch (error) {
                 setLoading(false);
             }
         } else {
+            // Drawing new cards - process payout if there's a win
             try {
-                const { data } = await axiosServices.post("/video-poker/draw", { holdIndexes: holds })
+                const { data } = await axiosServices.post("/video-poker/draw", { holdIndexes: holds });
                 const result = data.result;
                 const payout = data.payout;
                 setPrivateSeed(data.privateSeed);
+                
+                // If there's a payout, process blockchain cashout
+                if (payout > 0 && isAuthenticated) {
+                    const winAmount = betAmount * payout;
+                    await blockchainCashout('videopoker', gameId, winAmount);
+                }
+                
                 let c = 0;
                 for (let i = 0; i < data.hand.length + 1; i++) {
                     setTimeout(() => {
@@ -121,7 +187,6 @@ const VideoPoker = () => {
             }
         }
         setDealing(!dealing);
-
     };
 
     const handleHolder = (index: number) => {
@@ -133,7 +198,7 @@ const VideoPoker = () => {
         }
     }
     const { ranking, winningCards } = evaluateHand(cards);
-    const disabled = dealing || loading;
+    const disabled = dealing || loading || isProcessingBet;
 
     useEffect(() => {
         const fetchDatas = async () => {

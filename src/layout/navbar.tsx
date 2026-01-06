@@ -16,6 +16,7 @@ import { MenuList } from "@/components/Sidebar/menulist";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import QubicConnectButton from "@/qubic/components/QubicConnectButton";
+import BalanceDisplay from "@/components/BalanceDisplay";
 
 export const AcmeLogo = () => {
     return (
@@ -86,6 +87,9 @@ const CustomNavbar = () => {
             </NavbarContent>
 
             <NavbarContent justify="end">
+                <NavbarItem className="hidden sm:flex">
+                    <BalanceDisplay />
+                </NavbarItem>
                 <NavbarItem>
                     <QubicConnectButton />
                 </NavbarItem>
