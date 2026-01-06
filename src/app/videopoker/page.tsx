@@ -233,8 +233,9 @@ const VideoPoker = () => {
                     });
                 }
             } else if (key === "dealing") {
-                const audio = new Audio("/assets/audio/flip.xdzctLJY.mp3");
-                audio.play().catch((error: any) => {
+                // Use audio manager to reuse audio elements
+                const { audioManager } = require("@/utils/audioManager");
+                audioManager.playAudio("/assets/audio/flip.xdzctLJY.mp3").catch((error: any) => {
                     console.error("Failed to autoplay dealing audio:", error);
                 });
             }

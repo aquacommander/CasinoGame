@@ -20,6 +20,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useGameBetting } from "@/qubic/hooks/useGameBetting";
 import { useBalance } from "@/qubic/context/BalanceContext";
 import { useAuth } from "@/qubic/context/AuthContext";
+import { audioManager } from "@/utils/audioManager";
 import toast from "react-hot-toast";
 
 // import { crashXSocket as socket } from "../../utils/socket";
@@ -481,40 +482,24 @@ const CrashGame = () => {
     const isAuto = activeTab === 1;
 
     const useAudio = () => {
-        let errorAudio: any;
-        let placebetAudio: any;
-        let successAudio: any;
-        let crashAudio: any;
-        if (typeof window === "undefined") return;
-        errorAudio.current = new Audio("/assets/audio/error.wav");
-        placebetAudio.current = new Audio("/assets/audio/placebet.wav");
-        successAudio.current = new Audio("/assets/audio/success.wav");
-        crashAudio.current = new Audio("/assets/audio/crash.wav");
+        const audioMap: Record<string, string> = {
+            error: "/assets/audio/error.wav",
+            placebet: "/assets/audio/placebet.wav",
+            success: "/assets/audio/success.wav",
+            crash: "/assets/audio/crash.wav",
+        };
 
         const playAudio = (key: string) => {
-
-            let audio
-            switch (key) {
-                case "error":
-                    audio = errorAudio.current;
-                    break;
-                case "placebet":
-                    audio = placebetAudio.current;
-                    break;
-                case "success":
-                    audio = successAudio.current;
-                    break;
-                case "crash":
-                    audio = crashAudio.current;
-                    break;
-            }
-            if (!audio) return;
+            const src = audioMap[key];
+            if (!src) return;
 
             try {
-                audio.muted = true;
-                audio.play().then(() => {
+                audioManager.playAudio(src, { muted: true }).then(() => {
                     setTimeout(() => {
-                        audio.muted = false;
+                        const audio = audioManager.getAudio(src);
+                        if (audio) {
+                            audio.muted = false;
+                        }
                     }, 1000);
                 }).catch((error: any) => {
                     console.error("Failed to autoplay audio:", error);

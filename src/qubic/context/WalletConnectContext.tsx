@@ -197,32 +197,42 @@ export function WalletConnectProvider({ children }: WalletConnectProviderProps) 
         url: getMetadataUrl(),
         icons: ["https://walletconnect.com/walletconnect-logo.png"],
       },
-    }).then((client) => {
-      setSignClient(client);
+      relayUrl: "wss://relay.walletconnect.org",
+    })
+      .then((client) => {
+        setSignClient(client);
 
-      const storedTopic = localStorage.getItem("sessionTopic");
-      if (storedTopic) {
-        const session = client.session.get(storedTopic);
-        if (session) {
-          setSessionTopic(storedTopic);
-          setIsConnected(true);
-        } else {
-          localStorage.removeItem("sessionTopic");
+        const storedTopic = localStorage.getItem("sessionTopic");
+        if (storedTopic) {
+          const session = client.session.get(storedTopic);
+          if (session) {
+            setSessionTopic(storedTopic);
+            setIsConnected(true);
+          } else {
+            localStorage.removeItem("sessionTopic");
+          }
         }
-      }
 
-      client.on("session_delete", () => {
-        setSessionTopic("");
-        setIsConnected(false);
-        localStorage.removeItem("sessionTopic");
-      });
+        client.on("session_delete", () => {
+          setSessionTopic("");
+          setIsConnected(false);
+          localStorage.removeItem("sessionTopic");
+        });
 
-      client.on("session_expire", () => {
-        setSessionTopic("");
-        setIsConnected(false);
-        localStorage.removeItem("sessionTopic");
+        client.on("session_expire", () => {
+          setSessionTopic("");
+          setIsConnected(false);
+          localStorage.removeItem("sessionTopic");
+        });
+      })
+      .catch((error) => {
+        // Handle WalletConnect initialization errors gracefully
+        // WebSocket connection failures are non-critical - user can still use other connection methods
+        if (process.env.NODE_ENV === 'development') {
+          console.warn("WalletConnect initialization warning (non-critical):", error.message);
+        }
+        // Don't block the app - user can still use MetaMask or private key connection
       });
-    });
   }, []);
 
   const contextValue: WalletConnectContextType = {

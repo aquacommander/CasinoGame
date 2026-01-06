@@ -26,7 +26,11 @@ const Effect: React.FC<any> = ({ color }) => {
                         audio.muted = false;
                     }, 1000); // Adjust delay as needed
                 }).catch((error: any) => {
-                    console.error("Failed to autoplay audio:", error);
+                    // Suppress autoplay errors - browsers block autoplay for power saving
+                    // This is expected behavior and not a critical error
+                    if (process.env.NODE_ENV === 'development') {
+                        console.debug("Audio autoplay blocked (expected):", error.name);
+                    }
                 });
             }
 
@@ -228,8 +232,9 @@ export const findTile = (number: number): any => {
         const src = audioMap[hex];
         if (!src) return null;
 
-        const audio = new Audio(src);
-        return audio;
+        // Use audio manager to reuse audio elements
+        const { audioManager } = require("@/utils/audioManager");
+        return audioManager.getAudio(src);
     };
 
     const colors = [
